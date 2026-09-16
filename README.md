@@ -11,11 +11,10 @@ Use synthetic information: this is an organization prototype, not a clinical rec
 
 ## Demo
 
-Use Node **22.23.2** (`.nvmrc`) and npm. From the directory containing the supplied
-Git bundle:
+Use Node **22.23.2** (`.nvmrc`) and npm. Clone the maintained review branch:
 
 ```bash
-git clone --branch review/microphone-lifecycle ./Hospi-Pet-review.bundle Hospi-Pet
+git clone --branch review/microphone-lifecycle https://github.com/odoisveryverygood/Hospi-Pet.git
 cd Hospi-Pet
 nvm install
 nvm use
@@ -24,8 +23,8 @@ npm run dev
 ```
 
 Open <http://127.0.0.1:5173>. No environment variables, backend, account or API key
-are required. Without nvm, use your usual Node version manager. This review branch
-has not been pushed; the remote default branch is not this version of the project.
+are required. Without nvm, use your usual Node version manager. The clone command
+selects `review/microphone-lifecycle` explicitly.
 
 ## Core Workflow
 
