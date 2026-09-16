@@ -41,12 +41,14 @@ function acquisitionError(error: unknown): string {
   return 'Could not open the microphone. Check browser permission and your audio device, then retry.';
 }
 
-/** One instance per mounted view. All asynchronous callbacks close over their owner. */
+/** One instance per mounted workspace. All asynchronous callbacks close over their owner. */
 export class MicrophoneSession {
   private state: Snapshot = { phase: 'idle', generation: 0, seconds: 0, error: null, clip: null, permissionPending: false };
   private owner: Owner | null = null;
   private generation = 0;
   private disposed = false;
+  private transition = 'initial → idle';
+  private lastError: string | null = null;
   private subscribers = new Set<(state: Readonly<Snapshot>) => void>();
 
   constructor(private readonly media: MediaPort = browserMedia) {}
@@ -60,7 +62,16 @@ export class MicrophoneSession {
     return () => { this.subscribers.delete(listener); };
   }
 
+  get diagnostics() {
+    return { state: this.state.phase, recorderState: this.owner?.recorder?.state ?? 'inactive',
+      activeTracks: this.owner?.stream?.getTracks().filter((track) => track.readyState === 'live').length ?? 0,
+      timers: this.owner?.timers.size ?? 0, listeners: this.owner?.removeListeners.length ?? 0,
+      lastTransition: this.transition, lastError: this.lastError };
+  }
+
   private publish(patch: Partial<Snapshot>): void {
+    if (patch.error) this.lastError = patch.error;
+    if (patch.phase && patch.phase !== this.state.phase) this.transition = `${this.state.phase} → ${patch.phase}`;
     this.state = { ...this.state, ...patch };
     for (const listener of this.subscribers) listener(this.snapshot);
   }
@@ -154,6 +165,7 @@ export class MicrophoneSession {
     } finally {
       // Permission indicator goes off now, not after asynchronous encoding finishes.
       this.stopTracks(owner.stream);
+      this.publish({});
     }
   }
 

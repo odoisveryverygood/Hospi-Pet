@@ -1,0 +1,228 @@
+import { MicrophoneSession } from './microphone-session';
+import { CameraSession } from './camera-session';
+import { finalizeEncounter, LIMITS, newEncounter } from './domain/encounter';
+import type { Encounter } from './domain/encounter';
+import type { EncounterRepository } from './storage/encounter-store';
+import { storageMessage } from './storage/encounter-store';
+
+type CaptureOwner = { encounterId: string; generation: number; id: string; createdAt: string };
+export interface WorkspaceState {
+  encounters: Encounter[];
+  active: Encounter | null;
+  screen: 'history' | 'capture' | 'review';
+  loading: boolean;
+  busy: boolean;
+  dirty: boolean;
+  saving: boolean;
+  storageError: string | null;
+  invalidCount: number;
+}
+
+/** Product orchestration. Media controllers are reused; none of their lifecycle logic is duplicated. */
+export class Workspace {
+  private state: WorkspaceState = { encounters: [], active: null, screen: 'history', loading: true, busy: false, dirty: false, saving: false, storageError: null, invalidCount: 0 };
+  private listeners = new Set<(state: Readonly<WorkspaceState>) => void>();
+  private disposed = false;
+  private voiceOwner: CaptureOwner | null = null;
+  private cameraOwner: CaptureOwner | null = null;
+  private editVersion = 0;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saving: Promise<boolean> | null = null;
+  private unsubscribe: (() => void)[];
+
+  constructor(readonly repository: EncounterRepository, readonly microphone = new MicrophoneSession(), readonly camera = new CameraSession()) {
+    this.unsubscribe = [microphone.subscribe((capture) => {
+      const owner = this.voiceOwner;
+      if (owner && capture.phase === 'completed' && capture.generation === owner.generation
+        && owner.encounterId === this.state.active?.id && this.state.active.status === 'draft') {
+        this.voiceOwner = null;
+        if (capture.clip?.size) this.edit({ audio: { id: crypto.randomUUID(), captureSessionId: owner.id,
+          generation: owner.generation, createdAt: owner.createdAt, elapsedSeconds: capture.seconds, blob: capture.clip } }, true);
+      }
+      this.emit();
+    }), camera.subscribe((capture) => {
+      const owner = this.cameraOwner;
+      if (owner && capture.phase === 'completed' && capture.generation === owner.generation && capture.image
+        && owner.encounterId === this.state.active?.id && this.state.active.status === 'draft') {
+        this.cameraOwner = null;
+        this.edit({ images: [...this.state.active.images, { id: crypto.randomUUID(), captureSessionId: owner.id,
+          createdAt: owner.createdAt, ...capture.image }] }, true);
+      }
+      this.emit();
+    })];
+  }
+  get snapshot(): Readonly<WorkspaceState> { return { ...this.state }; }
+  get diagnostics() {
+    return { encounterId: this.state.active?.id ?? null,
+      captureSessionId: this.voiceOwner?.id ?? this.state.active?.audio?.captureSessionId ?? null,
+      cameraSessionId: this.cameraOwner?.id ?? null, microphone: this.microphone.diagnostics, camera: this.camera.diagnostics,
+      saveTimer: this.saveTimer === null ? 0 : 1, saving: this.state.saving };
+  }
+  get captureBusy(): boolean {
+    return ['requesting_permission', 'recording', 'stopping'].includes(this.microphone.snapshot.phase)
+      || ['requesting_permission', 'preview', 'capturing'].includes(this.camera.snapshot.phase);
+  }
+  subscribe(listener: (state: Readonly<WorkspaceState>) => void): () => void {
+    this.listeners.add(listener); listener(this.snapshot); return () => { this.listeners.delete(listener); };
+  }
+  private emit() { if (!this.disposed) for (const listener of this.listeners) listener(this.snapshot); }
+  private update(patch: Partial<WorkspaceState>) { this.state = { ...this.state, ...patch }; this.emit(); }
+
+  async refresh(): Promise<void> {
+    this.update({ loading: true });
+    try {
+      const result = await this.repository.list();
+      if (!this.disposed) this.update({ ...result, loading: false, storageError: null });
+    } catch (error) { if (!this.disposed) this.update({ loading: false, storageError: storageMessage(error) }); }
+  }
+  private async operation(work: () => Promise<void>): Promise<void> {
+    if (this.state.busy || this.disposed) return;
+    this.update({ busy: true });
+    try { await work(); }
+    catch (error) { if (!this.disposed) this.update({ storageError: storageMessage(error) }); }
+    finally { if (!this.disposed) this.update({ busy: false }); }
+  }
+  async create(title: string): Promise<void> {
+    if (title.trim().length > LIMITS.title) return;
+    return this.operation(async () => {
+      if (!await this.leave()) return;
+      const next = await this.repository.save(newEncounter(title));
+      if (this.disposed) return;
+      this.editVersion = 0;
+      this.update({ active: next, screen: 'capture', dirty: false, storageError: null });
+    });
+  }
+  async open(id: string): Promise<void> {
+    return this.operation(async () => {
+      if (!await this.leave()) return;
+      const { encounters, invalidCount } = await this.repository.list();
+      if (this.disposed) return;
+      const active = encounters.find((row) => row.id === id);
+      if (!active) { this.update({ encounters, invalidCount, active: null, screen: 'history', storageError: 'That encounter was removed or cannot be read. Refresh history.' }); return; }
+      this.editVersion = 0;
+      this.update({ active, screen: active.status === 'draft' ? 'capture' : 'review', encounters, invalidCount, dirty: false, storageError: null });
+    });
+  }
+  async home(): Promise<void> {
+    return this.operation(async () => {
+      if (!await this.leave() || this.disposed) return;
+      this.update({ active: null, screen: 'history' }); await this.refresh();
+    });
+  }
+  private endCapture() {
+    // Sever encounter bindings BEFORE controller cleanup can publish anything.
+    this.voiceOwner = null; this.cameraOwner = null;
+    this.microphone.cancel(); this.camera.cancel();
+  }
+  private async leave() { this.endCapture(); return this.flush(); }
+  private edit(patch: Partial<Pick<Encounter, 'title' | 'notes' | 'audio' | 'images'>>, immediate = false) {
+    const active = this.state.active;
+    if (!active || active.status !== 'draft' || this.disposed) return;
+    this.editVersion++;
+    this.update({ active: { ...active, ...patch, updatedAt: new Date().toISOString() }, dirty: true });
+    this.clearSaveTimer();
+    if (immediate) void this.flush();
+    else { this.saveTimer = setTimeout(() => { this.saveTimer = null; void this.flush(); }, 400); this.emit(); }
+  }
+  updateNotes(notes: string): void { if (notes.length <= LIMITS.notes && !this.state.busy) this.edit({ notes }); }
+  startVoice(): void {
+    const active = this.state.active;
+    const capture = this.microphone.snapshot;
+    if (!active || active.status !== 'draft' || this.state.busy || capture.permissionPending
+      || ['recording', 'requesting_permission', 'stopping'].includes(capture.phase)) return;
+    this.voiceOwner = { encounterId: active.id, generation: capture.generation + 1, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+    this.edit({ audio: null }, true);
+    this.microphone.start();
+  }
+  discardVoice(): void {
+    if (this.state.active?.status !== 'draft' || this.state.busy) return;
+    this.voiceOwner = null; this.microphone.cancel(); this.edit({ audio: null }, true);
+  }
+  openCamera(): void {
+    const active = this.state.active;
+    const capture = this.camera.snapshot;
+    if (!active || active.status !== 'draft' || active.images.length >= LIMITS.images || this.state.busy
+      || capture.permissionPending || ['requesting_permission', 'preview', 'capturing'].includes(capture.phase)) return;
+    this.cameraOwner = { encounterId: active.id, generation: capture.generation + 1, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+    this.camera.open();
+  }
+  cancelCamera(): void { this.cameraOwner = null; this.camera.cancel(); }
+  removeImage(id: string): void {
+    if (this.state.busy) return;
+    this.edit({ images: this.state.active?.images.filter((image) => image.id !== id) ?? [] }, true);
+  }
+  async review(): Promise<void> {
+    if (this.captureBusy) return;
+    return this.operation(async () => { if (await this.flush()) this.update({ screen: 'review' }); });
+  }
+  editCapture(): void { if (this.state.active?.status === 'draft' && !this.state.busy) this.update({ screen: 'capture' }); }
+  async finalize(): Promise<void> {
+    if (this.captureBusy || this.state.active?.status !== 'draft') return;
+    return this.operation(async () => {
+      if (!await this.flush() || !this.state.active) return;
+      const next = finalizeEncounter(this.state.active);
+      // Publish finalization only after the transaction commits; failure leaves a retryable draft.
+      const saved = await this.repository.save(next);
+      if (this.disposed) return;
+      this.endCapture();
+      this.update({ active: saved, screen: 'review', dirty: false, storageError: null });
+    });
+  }
+  private clearSaveTimer() { if (this.saveTimer !== null) clearTimeout(this.saveTimer); this.saveTimer = null; }
+  flush(): Promise<boolean> {
+    this.clearSaveTimer();
+    if (this.saving) return this.saving;
+    if (!this.state.dirty || !this.state.active || this.disposed) return Promise.resolve(!this.state.dirty);
+    this.saving = this.persist().finally(() => { this.saving = null; if (!this.disposed) this.update({ saving: false }); });
+    return this.saving;
+  }
+  private async persist(): Promise<boolean> {
+    this.update({ saving: true });
+    while (!this.disposed && this.state.dirty && this.state.active) {
+      const current = this.state.active;
+      const version = this.editVersion;
+      try {
+        const saved = await this.repository.save(current);
+        if (this.disposed || this.state.active?.id !== current.id) return false;
+        this.update({ active: { ...this.state.active, revision: saved.revision }, dirty: this.editVersion !== version, storageError: null });
+      } catch (error) { if (!this.disposed) this.update({ storageError: storageMessage(error) }); return false; }
+    }
+    return !this.disposed;
+  }
+  async reloadSaved(): Promise<void> {
+    return this.operation(async () => {
+      this.endCapture(); this.clearSaveTimer();
+      if (this.saving) await this.saving;
+      const id = this.state.active?.id;
+      const result = await this.repository.list();
+      if (this.disposed) return;
+      const active = result.encounters.find((row) => row.id === id) ?? null;
+      this.update({ ...result, active, dirty: false, storageError: null, screen: active ? (active.status === 'draft' ? 'capture' : 'review') : 'history' });
+    });
+  }
+  async deleteEncounter(id: string): Promise<void> {
+    return this.operation(async () => {
+      this.endCapture(); this.clearSaveTimer();
+      if (this.saving) await this.saving;
+      await this.repository.delete(id);
+      if (this.disposed) return;
+      this.update({ active: null, screen: 'history', dirty: false, storageError: null }); await this.refresh();
+    });
+  }
+  async clearLocalData(): Promise<void> {
+    return this.operation(async () => {
+      this.endCapture(); this.clearSaveTimer();
+      if (this.saving) await this.saving;
+      await this.repository.clear();
+      if (this.disposed) return;
+      this.update({ active: null, screen: 'history', dirty: false, storageError: null }); await this.refresh();
+    });
+  }
+  async removeInvalid(): Promise<void> { return this.operation(async () => { await this.repository.removeInvalid(); await this.refresh(); }); }
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true; this.voiceOwner = null; this.cameraOwner = null;
+    this.clearSaveTimer(); this.unsubscribe.forEach((fn) => fn());
+    this.microphone.dispose(); this.camera.dispose(); this.listeners.clear(); this.repository.close();
+  }
+}
