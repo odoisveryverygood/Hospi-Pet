@@ -1,61 +1,13 @@
-# Local configuration and credentials
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.jac/
+.jaseci/
+__pycache__/
 .env
 .env.*
 !.env.example
-secrets/
-.secrets/
-*.key
-*.pem
-*.p12
-*.pfx
-credentials*.json
-
-# Python caches
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# JavaScript dependencies and build output
-node_modules/
-dist/
-build/
-coverage/
-
-# Jac caches and local runtime state
-.jac/
-.jac-cache/
-.jac_cache/
-.jaseci/
-*.jacdb
-
-# Local databases and logs
-*.db
-*.sqlite
-*.sqlite3
 *.log
-logs/
-
-# Temporary and editor files
 .DS_Store
-*.tmp
-*.temp
-*.swp
-*.swo
-*~
-.cache/
-tmp/
-temp/
-.vscode/
-.idea/
-
-# Real/private patient or medical data (synthetic fixtures remain trackable)
-private_data/
-data/private/
-data/real_patient_data/
-data/real-patient-data/
-patient_data/private/
-medical_data/private/
-phi/
-.vercel
