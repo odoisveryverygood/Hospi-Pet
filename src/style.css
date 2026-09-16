@@ -1,0 +1,34 @@
+:root { font-family: ui-sans-serif, system-ui, sans-serif; color: #142e36; background: #f4f7f5; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 960px; margin: auto; padding: 48px 32px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 60px; }
+.badge { font-size: 10px; font-weight: 750; letter-spacing: .12em; border: 1px solid #91afa3; border-radius: 5px; padding: 7px 9px; }
+.wordmark { font-size: 14px; color: #36584c; }
+h1 { font-size: clamp(32px, 5.5vw, 52px); line-height: 1.08; letter-spacing: -.04em; margin: 0 0 20px; font-weight: 650; }
+p { line-height: 1.65; }
+.intro { max-width: 660px; color: #48616a; font-size: 17px; margin-bottom: 34px; }
+.panel { background: white; border: 1px solid #cad9d2; border-radius: 16px; padding: 28px; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h2 { font-size: 17px; margin: 0; font-weight: 650; }
+#phase { font: 13px ui-monospace, monospace; background: #eef3ef; border-radius: 6px; padding: 7px 10px; }
+#phase[data-phase=recording] { background: #ffe2d7; color: #943613; }
+dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 24px 0; margin: 0; }
+dt { font-size: 12px; color: #536e65; margin-bottom: 8px; }
+dd { margin: 0; font-size: 17px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; }
+button { font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid #215949; background: #215949; color: white; border-radius: 7px; padding: 12px 16px; }
+button.secondary { color: #215949; background: white; }
+button:disabled { cursor: default; opacity: .4; }
+button:focus-visible, audio:focus-visible { outline: 3px solid #c98b30; outline-offset: 3px; }
+.privacy, footer { font-size: 12px; color: #52685f; }
+.privacy { margin: 22px 0 0; }
+#error, #pending { padding: 12px; background: #fff1e9; border-left: 3px solid #b45b2e; font-size: 14px; }
+#playback { border-top: 1px solid #dde6e0; margin-top: 22px; padding-top: 18px; }
+label { display: block; font-size: 13px; margin-bottom: 12px; }
+audio { width: 100%; }
+#clip-info { font-size: 12px; color: #536e65; }
+.details { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 30px; }
+.details p { font-size: 14px; color: #52685f; }
+footer { border-top: 1px solid #cad9d2; margin-top: 26px; padding-top: 22px; }
+@media (max-width: 600px) { main { padding: 28px 18px; } header { margin-bottom: 36px; flex-wrap: wrap; } .panel { padding: 20px; } .panel-heading { flex-wrap: wrap; } dl { grid-template-columns: 1fr; gap: 16px; } .details { grid-template-columns: 1fr; gap: 12px; } }
