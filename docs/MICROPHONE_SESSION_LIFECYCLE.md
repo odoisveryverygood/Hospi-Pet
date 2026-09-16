@@ -34,8 +34,8 @@ Do not claim this repair proves the historical root cause.
 **Current verified behavior:** new tests exercise the maintained controller,
 including stale callbacks from an old recorder while the next session records.
 The old full-stack implementation is archived under `legacy/jac-app/`. The
-new local recording workflow intentionally replaces that review surface. It
-is not a second mode pretending to exercise the old speech/backend pipeline.
+controller now supplies the maintained encounter notebook. It does not call
+the old speech/backend pipeline; it is an improvement made during review.
 
 ## State and ownership
 
@@ -70,7 +70,7 @@ copies and cannot change lifecycle state by assigning a boolean.
   no abort mechanism. A late stream is stopped before recorder creation; no
   retired result is adopted. There is no promise the UI must await to cancel.
 - Start clears the previous clip, error, and elapsed time. No transcript exists
-  in this demo, so none can silently carry between sessions.
+  in the maintained app, so none can silently carry between sessions.
 - Stop disables restart until encoding finishes or the watchdog releases the
   owner. Microphone tracks stop immediately; the final Blob arrives asynchronously.
 - Release first invalidates ownership, then clears timers and listeners, stops
@@ -78,8 +78,10 @@ copies and cannot change lifecycle state by assigning a boolean.
   and chunk storage. An exceptional recorder.stop cannot bypass track release.
 - Disposal removes subscribers and capture resources. Pending promises still
   run their track-release continuation but cannot update the disposed view.
-- Playback URLs are revoked on replacement, discard, and page exit. No media or
-  transcript is saved to storage or transmitted by application code.
+- Playback URLs are revoked on replacement, discard, and page exit. The encounter
+  workspace now saves completed Blobs in IndexedDB. Releasing capture resources
+  does not delete saved sources; explicit deletion does. No upload or transcript
+  service is used.
 
 ## Race protection and bounded recovery
 
@@ -104,7 +106,8 @@ permission retry or hidden microphone restart occurs.
 The view disposes on `pagehide` and remounts an idle controller on persisted
 `pageshow`. Operating-system process termination is outside JavaScript control;
 the browser owns hardware cleanup in that case. Separate tabs have separate
-controllers; this demo does not claim cross-tab exclusivity.
+controllers; the application does not claim cross-tab hardware exclusivity.
+Atomic storage revisions do protect encounters from silent competing-tab writes.
 
 ## What the tests prove
 
@@ -121,9 +124,37 @@ Denial is injected deterministically; this does not test an OS permission dialog
 Page-cache restoration uses synthetic lifecycle events; separate real navigation
 checks pagehide cleanup. These are deliberately distinct evidence scopes.
 
+## Product integration and camera ownership
+
+`Workspace` keeps this controller instance across encounter switches, preserving
+pending-permission serialization. Each attempt binds an encounter ID, a capture
+UUID, and the expected controller generation. A completion must match both
+encounter and generation before its Blob can be attached. Navigation clears the
+binding before canceling. IndexedDB persistence has a separate lifetime from
+microphone ownership; only completed clips persist, never an active stream.
+
+Camera uses the same ownership discipline in its own controller:
+`idle/completed/error → requesting_permission → preview → capturing → completed`.
+Cancel returns to idle and failure to error. A 15-second permission deadline,
+60-second preview limit and 5-second encoding deadline bound abandoned work.
+The view borrows the stream; only the controller owns tracks. The canvas copies
+the frame synchronously before tracks stop; late asynchronous encoding must still
+match the owner. Take photo is disabled until a usable frame has loaded.
+
+Finalization requires inactive capture, flushes notes, and commits the encounter
+before reporting success. All owned media/save timers and live tracks are zero.
+Unresolved browser permission promises are the same documented exception as above;
+late grants still cannot attach to a finalized/different encounter.
+
+`tests/camera-session.test.ts` tests repeated preview/capture, permission and encode
+races, teardown, timeouts and device failures. `tests/workspace.test.ts` combines
+both real controllers with boundary doubles, including old media results after
+switching encounters. `tests/encounter-store.test.ts` uses IndexedDB semantics
+through fake-indexeddb; native persistence is verified by the browser product suite.
+
 ## Manual hardware procedure (not automated evidence)
 
-1. `npm ci && npm run dev`; open localhost in a desktop browser. Close other
+1. `npm ci && npm run dev`; open localhost and create an encounter. Close other
    applications using the microphone if necessary. Use non-sensitive speech.
 2. Allow microphone permission, record 3–5 seconds, stop, play the clip.
    Check that the browser's active capture indicator turns off.

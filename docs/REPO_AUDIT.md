@@ -1,5 +1,12 @@
 # Repository audit
 
+> Historical baseline from the first engineering review. The second pass started
+> at `15b03bc5e4b05c8996e65ba5d03fbb938c1d45c9` on the same branch and built the
+> maintained encounter product around that controller. Current architecture and
+> checks are in [PRODUCT_ARCHITECTURE.md](PRODUCT_ARCHITECTURE.md) and
+> [VERIFICATION.md](VERIFICATION.md). Original findings below remain evidence,
+> not a description of the current root UI.
+
 ## Scope and provenance
 
 Inspected on 2026-09-15 (America/Los_Angeles), before changing tracked source.
@@ -159,7 +166,7 @@ None of this research was deleted to reduce the file count.
 5. Bound memory/time, release playback URLs, handle page teardown, document limits.
 6. Separate historical research from current supported demo and verification.
 
-The maintained review surface is now the root TypeScript capture demo. Original
+At the end of the first pass, the maintained review surface was the root TypeScript capture demo. Original
 tracked application and documentation are isolated under `legacy/jac-app/`;
 their contents and useful tests remain preserved. They are not an alternative
 supported implementation. The new demo and all new tests use the single
