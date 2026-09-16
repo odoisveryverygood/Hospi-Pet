@@ -3,7 +3,7 @@ export default defineConfig({
   testDir: './tests/browser', fullyParallel: false, workers: 1,
   use: {
     baseURL: 'http://127.0.0.1:5173', browserName: 'chromium',
-    permissions: ['microphone'],
+    permissions: ['microphone', 'camera'],
     launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
     trace: 'retain-on-failure',
   },
