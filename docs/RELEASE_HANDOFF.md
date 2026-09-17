@@ -1,5 +1,8 @@
 # Release handoff verification
 
+Historical cleanup snapshot. Subsequent capture-system changes and checks are
+recorded in [ADVANCED_VERIFICATION.md](ADVANCED_VERIFICATION.md).
+
 Release cleanup, 2026-09-16. This pass changes documentation, ignore rules and CI;
 application code, dependencies, tests and the 146-file Jac archive are unchanged.
 

@@ -1,6 +1,6 @@
 # Hospi-Pet
 
-An encounter notebook that keeps a visit's voice recording, document photos and written notes together for review.
+A local-first encounter notebook that keeps a visit's voice recording, document photos and written notes together for review.
 
 Record real audio, attach document photos and your own notes, review the sources,
 then finalize and reopen an encounter from local history. Drafts and captured media
@@ -8,7 +8,8 @@ survive refresh. Use synthetic information; this is not a clinical record system
 
 The engineering focus is reliable capture across repeated encounters: explicit
 media ownership, stale-callback protection, atomic local saves and deterministic
-browser tests that encode and decode real media using synthetic devices.
+browser tests that encode and decode real media using synthetic devices. Captured
+sources have a lifecycle journal, provenance links and SHA-256 integrity fingerprints.
 
 ## Run locally
 
@@ -44,14 +45,30 @@ cancels that unfinished clip. Saved drafts and finalized records survive refresh
 
 ## Engineering Focus
 
-- One owner per media controller: tracks, recorder, listeners and timers have explicit cleanup.
-- Retired callbacks cannot attach media to a newer capture or a different encounter.
-- Permission requests are serialized; late grants are stopped after cancellation.
-- IndexedDB stores metadata and Blobs atomically. Revision checks prevent silent
-  competing-tab overwrites; save failures remain visible and retryable.
-- Collapsible diagnostics show capture states, IDs, track counts and owned timers.
-- Deterministic tests combine timing/failure injection with native Chromium recording,
-  audio decoding, camera frames, persistence and complete product flows.
+**Capture → events → sources → provenance → review → replay.**
+
+- Existing microphone/camera controllers own tracks, listeners, recorder and timers.
+- Encounter/session identity prevents retired callbacks attaching to a newer encounter.
+- A typed, content-free journal makes asynchronous ordering inspectable.
+- SHA-256 fingerprints are stored with sources and checked on reopen; failures are visible.
+- Atomic IndexedDB revisions reject silent competing-tab overwrites.
+- A pure replay projection never reacquires hardware or reconstructs private content.
+- Deterministic unit and Chromium tests exercise real controller/storage boundaries.
+
+Normal capture stays simple. Open **Capture timeline & provenance** below an
+encounter for Timeline, Provenance, Replay and Privacy; **Developer diagnostics**
+shows owned resources, pending writes, ignored callbacks and invariant failures.
+Provenance can export a validated metadata-only JSON manifest.
+
+To explore failures, run the same development server and open
+<http://127.0.0.1:5173/?lab=1>. **Capture Lab** arms one fault at an actual media or
+storage boundary. Try microphone-delay → Start → All encounters → create another
+encounter → Release pending callbacks. No source should cross that boundary.
+Lab adapters and network instrumentation are excluded from production builds.
+
+[Capture architecture](docs/CAPTURE_ARCHITECTURE.md) explains the event vocabulary,
+provenance, bounded history and replay. [Fault matrix](docs/CHAOS_MATRIX.md) maps
+reproducible failures to their assertions.
 
 ## Architecture
 
@@ -60,8 +77,11 @@ History / Capture / Review views
              ↓
     Encounter workspace
        ↙           ↘
-Media controllers   Encounter model → IndexedDB
-(mic + camera)      (sources + notes + revisions)
+Media controllers → session events → sources + fingerprints
+(mic + camera)          ↓
+                Encounter → atomic IndexedDB row
+                       ↓
+                Provenance / lifecycle replay / metadata export
 ```
 
 `src/` is the maintained TypeScript/Vite prototype. It has no runtime npm
@@ -107,8 +127,12 @@ the exact reported stale-session incident or its root cause.
 ## Limitations
 
 - Local browser storage only: no encryption by this app, account, cloud backup,
-  export/import, sync or storage durability guarantee. Keep the same site address/port.
+  media backup/import, sync or storage durability guarantee. Keep the same site address/port.
 - One clip per encounter; 60 seconds / 8 MiB, four photos ≤1 MiB each, 20 encounters.
+- Events are bounded to 512 per encounter; omitted history is explicit. Replay is a
+  lifecycle projection, not full event-sourced content reconstruction.
+- Hashes are integrity fingerprints, not signatures or authentication. Metadata export
+  excludes media and note text; there is no import or media archive.
 - No transcription, OCR, medical inference or care-graph backend in the maintained app.
 - Chromium is automated. Physical devices, OS prompts, Safari/Firefox and long-running
   capture have not been validated. Pending permission prompts need browser interaction.
@@ -116,5 +140,6 @@ the exact reported stale-session incident or its root cause.
 
 ## Further technical context
 
+[Current verification and measurements](docs/ADVANCED_VERIFICATION.md).
 [Optional Screenpipe engineering review](docs/SCREENPIPE_REVIEW.md).
 [Microphone lifecycle details](docs/MICROPHONE_SESSION_LIFECYCLE.md).

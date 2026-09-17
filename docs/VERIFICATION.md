@@ -4,6 +4,11 @@
 [root README](../README.md). The product-pass results below are dated historical
 evidence, not an instruction to use an internal branch or a hosted CI result.
 
+## Advanced capture verification
+
+See [ADVANCED_VERIFICATION.md](ADVANCED_VERIFICATION.md) for the latest checks,
+measurements and browser evidence. Earlier results below remain dated snapshots.
+
 ## Release handoff verification
 
 See [RELEASE_HANDOFF.md](RELEASE_HANDOFF.md) for the current CI configuration,

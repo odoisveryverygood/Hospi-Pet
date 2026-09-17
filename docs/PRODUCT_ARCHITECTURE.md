@@ -71,7 +71,8 @@ main.ts (page lifetime)
 Vite and strict TypeScript; no runtime npm dependency, framework, API key or
 server process beyond serving static assets. The views borrow media and render
 snapshots. Only the controllers stop capture resources. The view owns and
-revokes playback/image object URLs. Workspace owns one 400 ms notes-save timer.
+revokes playback/image object URLs. Workspace owns one 400 ms edit/journal-save timer. The optional replay view owns
+a separate, disposable UI timer.
 
 ### Encounter identity and stale work
 
@@ -106,7 +107,7 @@ microphone. An unfinished recording is not saved until Stop completes.
 
 Runtime validation isolates malformed rows. Valid records still load; unreadable
 rows are preserved until explicit removal. There is no migration from the Jac
-backend and no backup/export/import feature. IndexedDB can be cleared or evicted
+backend, media backup or import feature. A metadata-only manifest export is available. IndexedDB can be cleared or evicted
 by the browser. Local storage is not encrypted by this app.
 
 ### Transcription decision
@@ -116,8 +117,9 @@ Browser SpeechRecognition has uneven availability and can use a remote browser
 vendor service; there is no portable, dependable local-only contract for this
 prototype. Audio must not depend on it. The UI and schema explicitly say
 transcription is unavailable; written notes never become a fake transcript.
-A future optional adapter would need explicit network consent, the same capture
-identity guard, a clear unavailable/error state and independent teardown tests.
+`src/capture/transcript.ts` defines an optional on-device provider contract with
+source provenance and cancellation. It has no configured implementation; a real
+provider would still need identity guards and independent tests.
 [MDN SpeechRecognition](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition).
 
 ### Privacy and diagnostics
@@ -141,3 +143,12 @@ No graph inference, clinical recommendations, OCR, generated transcript, paid
 service, account system, synchronization, waveform, continuous/background recording
 or medical compliance claim. These omissions keep capture and source review
 usable without reviving every historical experiment.
+
+## Capture inspection extension
+
+The maintained encounter flow now includes a typed event journal, source hashes,
+provenance, read-only lifecycle replay and a development-only fault lab. These are
+subsequent improvements, not recovered Jac functionality. The event journal and
+fingerprints are optional validated fields, so older local records remain readable
+without fabricated history. See [CAPTURE_ARCHITECTURE.md](CAPTURE_ARCHITECTURE.md)
+for ownership, event semantics, bounds and failure behavior.
