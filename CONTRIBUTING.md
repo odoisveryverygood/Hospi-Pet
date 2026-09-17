@@ -1,5 +1,10 @@
 # Contributing
 
+`main` is the canonical maintained branch. Open pull requests against `main`.
+CI runs the check commands and audit separately from Chromium acceptance.
+Use the Node version in `.nvmrc`; install the browser with
+`npx playwright install --with-deps chromium` before running browser tests.
+
 The maintained surface is `src/` and its tests. Keep changes focused on capture
 ownership, cleanup, reproducibility, and explicit evidence. Run `npm run check`
 and `npm run test:browser` before proposing a change. Never commit real audio,

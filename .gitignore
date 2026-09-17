@@ -11,3 +11,13 @@ __pycache__/
 !.env.example
 *.log
 .DS_Store
+
+# Local handoff archives and tooling artifacts
+*.bundle
+blob-report/
+playwright/.cache/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db

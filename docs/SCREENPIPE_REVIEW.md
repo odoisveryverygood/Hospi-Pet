@@ -16,7 +16,7 @@ root cause. The original used browser speech recognition, **not MediaRecorder**.
 The maintained product now has an end-to-end encounter notebook: create → record
 voice → attach optional document photos → review → finalize → local history.
 The first review introduced the
-recorder controller; this pass integrated it into encounters without duplicating it.
+recorder controller; the subsequent product pass integrated it into encounters without duplicating it.
 
 ## Engineering problem
 
@@ -53,7 +53,7 @@ Use Node 22.23.2: `npm ci && npm run dev`; open <http://127.0.0.1:5173>.
 In **30–60 seconds**: New encounter → record 3 seconds → stop/play → optional
 photo → written note → review/finalize → history → new encounter → record again.
 Refresh to reopen the first record. `npm run check` and
-`npx playwright install chromium && npm run test:browser` reproduce the checks.
+`npx playwright install --with-deps chromium && npm run test:browser` reproduce the checks.
 
 Best files:
 

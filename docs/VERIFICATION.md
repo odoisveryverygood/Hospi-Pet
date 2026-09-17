@@ -1,5 +1,16 @@
 # Verification record
 
+`main` is the canonical branch. Use the normal GitHub clone command in the
+[root README](../README.md). The product-pass results below are dated historical
+evidence, not an instruction to use an internal branch or a hosted CI result.
+
+## Release handoff verification
+
+See [RELEASE_HANDOFF.md](RELEASE_HANDOFF.md) for the current CI configuration,
+local release checks and the separate hosted-verification requirement.
+
+## Historical product-pass verification — 2026-09-15
+
 Product pass: 2026-09-15 (America/Los_Angeles), macOS arm64, Node **22.23.2**,
 npm **11.7.0**, TypeScript **5.9.3**, Vite **8.3.0**, Vitest **5.0.1**,
 Playwright **1.63.0** and its bundled Chromium.
@@ -9,12 +20,13 @@ Starting point: clean `review/microphone-lifecycle` at
 rerun before editing: 24 controller tests, 6 Chromium acceptance tests, typecheck,
 lint and build passed. This pass adds a maintained encounter product around it.
 
-## Current maintained product
+## Product-pass command results
 
 The following ran successfully in a new checkout of the complete source/test
-commit `9c65efefe3ece8f91954cd31a38f5430198abdd2`. Later documentation is separate
-from this implementation. Final-handoff logs also record verification of the
-subsequent documentation commit.
+commit `9c65efefe3ece8f91954cd31a38f5430198abdd2`. The same commands also passed
+in a fresh bundle clone of `b49589efd388fc9509d326e7df02910ba41135d1`, which
+added the product documentation. These commit IDs identify reproducible Git
+snapshots; an external local handoff file is not required to use this repository.
 
 | Command | Actual result |
 | --- | --- |
@@ -96,8 +108,10 @@ Provider/key/token environment variables were removed. Existing local Node,
 registry and Chromium caches were reused. This verifies fresh source/dependency
 installation on macOS, not a newly provisioned operating system or Linux host.
 Playwright started/stopped its own application server. No hosted CI run is claimed.
-The Git bundle includes branch history, not vendored dependencies or a browser.
-The remote default branch was not changed or published by this pass.
+That historical verification used a Git bundle and did not publish changes.
+Subsequently, `main` and the internal review branch were both published at
+`32e069d74f4ed87d259ffe0aff1866d1d03abbfe`. Current setup uses a normal GitHub
+clone of `main`; no bundle or internal branch selection is needed.
 
 ## Final engineering review
 

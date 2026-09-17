@@ -2,29 +2,28 @@
 
 An encounter notebook that keeps a visit's voice recording, document photos and written notes together for review.
 
-## Current Prototype
+Record real audio, attach document photos and your own notes, review the sources,
+then finalize and reopen an encounter from local history. Drafts and captured media
+survive refresh. Use synthetic information; this is not a clinical record system.
 
-Create an encounter, capture real audio, optionally photograph a practice document,
-review the sources and finalize a local record. Reopen drafts or finalized
-encounters after refreshing; delete individual encounters or clear local data.
-Use synthetic information: this is an organization prototype, not a clinical record system.
+The engineering focus is reliable capture across repeated encounters: explicit
+media ownership, stale-callback protection, atomic local saves and deterministic
+browser tests that encode and decode real media using synthetic devices.
 
-## Demo
+## Run locally
 
-Use Node **22.23.2** (`.nvmrc`) and npm. Clone the maintained review branch:
+Use Node **22.23.2** (pinned in `.nvmrc`) and npm. **`main` is canonical.**
 
 ```bash
-git clone --branch review/microphone-lifecycle https://github.com/odoisveryverygood/Hospi-Pet.git
+git clone https://github.com/odoisveryverygood/Hospi-Pet.git
 cd Hospi-Pet
-nvm install
-nvm use
 npm ci
 npm run dev
 ```
 
 Open <http://127.0.0.1:5173>. No environment variables, backend, account or API key
-are required. Without nvm, use your usual Node version manager. The clone command
-selects `review/microphone-lifecycle` explicitly.
+are required. If you use nvm, run `nvm install && nvm use` inside the checkout
+before `npm ci`.
 
 ## Core Workflow
 
@@ -76,12 +75,16 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
-npx playwright install chromium
+npx playwright install --with-deps chromium
 npm run test:browser
 npm audit
 ```
 
 `npm run check` combines typecheck, lint, unit/integration tests and build.
+[CI](.github/workflows/ci.yml) runs separate check and Chromium jobs on pushes to
+`main` and pull requests targeting `main`. Hosted results appear in the
+[Actions tab](https://github.com/odoisveryverygood/Hospi-Pet/actions/workflows/ci.yml);
+local verification does not establish a hosted CI result.
 Browser acceptance uses fake microphone/camera devices with real browser media
 APIs, encoding and decoding. It also checks save recovery, competing tabs, corrupt
 records, offline use after loading and responsive screens. Generated screenshots
@@ -111,7 +114,7 @@ the exact reported stale-session incident or its root cause.
   capture have not been validated. Pending permission prompts need browser interaction.
 - Loaded capture works offline; opening the app from a cold offline browser is unsupported.
 
-## Screenpipe Engineering Review
+## Further technical context
 
-[Project context, implementation and review path](docs/SCREENPIPE_REVIEW.md).
+[Optional Screenpipe engineering review](docs/SCREENPIPE_REVIEW.md).
 [Microphone lifecycle details](docs/MICROPHONE_SESSION_LIFECYCLE.md).
