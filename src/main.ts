@@ -1,3 +1,6 @@
+import { MicrophoneSession } from './microphone-session';
+import { CameraSession } from './camera-session';
+import type { CaptureLab } from './capture/lab';
 import { IndexedEncounterStore } from './storage/encounter-store';
 import { Workspace } from './workspace';
 import { find } from './ui/dom';
@@ -16,18 +19,23 @@ root.innerHTML = `
 `;
 const content = find(root, '#content');
 let workspace: Workspace;
+let lab: CaptureLab | undefined;
+let makeLab: (() => CaptureLab) | undefined;
 let view: View | null = null;
 let key = '';
 let unsubscribe = () => {};
 function mount(): void {
   try {
-    workspace = new Workspace(new IndexedEncounterStore());
+    lab = makeLab?.();
+    const repository = new IndexedEncounterStore();
+    workspace = new Workspace(lab ? lab.repository(repository) : repository, new MicrophoneSession(lab?.media()), new CameraSession(lab?.camera()));
+    lab?.inspectNetwork(() => workspace.captureBusy);
     unsubscribe = workspace.subscribe((state) => {
       const nextKey = state.active?.id ?? 'history';
       if (key !== nextKey || !view) {
         view?.dispose();
         key = nextKey;
-        view = state.active ? new EncounterView(content, workspace) : new HistoryView(content, workspace);
+        view = state.active ? new EncounterView(content, workspace, lab) : new HistoryView(content, workspace);
         find<HTMLElement>(content, 'h1').focus({ preventScroll: true });
       } else view.update();
       find(root, '#storage-notice').hidden = !state.storageError;
@@ -48,11 +56,17 @@ find(root, '#reload-saved').addEventListener('click', () => {
   if (window.confirm('Discard unsaved changes and reload the saved encounter?')) void workspace.reloadSaved();
 });
 find(root, '#clear-data').addEventListener('click', () => {
-  if (workspace && window.confirm('Permanently delete all Hospi-Pet encounters, audio, photos, and notes stored in this browser?')) void workspace.clearLocalData();
+  if (workspace && window.confirm('Permanently delete all Hospi-Pet encounters, audio, photos, and notes stored in this browser?')) void workspace.clearLocalData().then(() => { if (!workspace.snapshot.active) lab?.reset(); });
 });
 window.addEventListener('beforeunload', (event) => {
   if (workspace && (workspace.snapshot.dirty || workspace.snapshot.saving || workspace.snapshot.busy)) { event.preventDefault(); event.returnValue = ''; }
 });
-window.addEventListener('pagehide', () => { unsubscribe(); workspace?.dispose(); view?.dispose(); view = null; key = ''; });
+window.addEventListener('pagehide', () => { unsubscribe(); workspace?.dispose(); lab?.dispose(); view?.dispose(); view = null; key = ''; });
 window.addEventListener('pageshow', (event) => { if (event.persisted) mount(); });
-mount();
+async function boot() {
+  if (import.meta.env.DEV && new URLSearchParams(location.search).get('lab') === '1') {
+    const { CaptureLab } = await import('./capture/lab'); makeLab = () => new CaptureLab();
+  }
+  mount();
+}
+void boot().catch(() => { content.textContent = 'Development tools could not load. Reload without ?lab=1.'; });

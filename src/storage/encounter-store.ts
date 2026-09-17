@@ -1,3 +1,4 @@
+import { fingerprintNewSources } from '../capture/integrity';
 import { isEncounter, LIMITS } from '../domain/encounter';
 import type { Encounter } from '../domain/encounter';
 
@@ -63,8 +64,9 @@ export class IndexedEncounterStore implements EncounterRepository {
     const encounters = rows.filter(isEncounter).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return { encounters, invalidCount: rows.length - encounters.length };
   }
-  save(encounter: Encounter): Promise<Encounter> {
-    if (!isEncounter(encounter)) return Promise.reject(new Error('Invalid encounter'));
+  async save(encounter: Encounter): Promise<Encounter> {
+    if (!isEncounter(encounter)) throw new Error('Invalid encounter');
+    encounter = await fingerprintNewSources(encounter);
     return this.transaction('readwrite', (store, result, fail) => {
       const request = store.get(encounter.id);
       request.onsuccess = () => {

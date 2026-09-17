@@ -1,3 +1,5 @@
+import { CaptureTrace } from './capture/events';
+import type { CaptureAction } from './capture/events';
 export type Phase = 'idle' | 'requesting_permission' | 'recording' | 'stopping' | 'completed' | 'error';
 export interface Snapshot {
   phase: Phase;
@@ -43,6 +45,10 @@ function acquisitionError(error: unknown): string {
 
 /** One instance per mounted workspace. All asynchronous callbacks close over their owner. */
 export class MicrophoneSession {
+  readonly trace = new CaptureTrace();
+  private signal(action: CaptureAction, generation = this.state.generation) {
+    this.trace.emit({ action, generation, at: Date.now(), phase: this.state.phase, tracks: this.diagnostics.activeTracks, timers: this.diagnostics.timers });
+  }
   private state: Snapshot = { phase: 'idle', generation: 0, seconds: 0, error: null, clip: null, permissionPending: false };
   private owner: Owner | null = null;
   private generation = 0;
@@ -72,7 +78,9 @@ export class MicrophoneSession {
   private publish(patch: Partial<Snapshot>): void {
     if (patch.error) this.lastError = patch.error;
     if (patch.phase && patch.phase !== this.state.phase) this.transition = `${this.state.phase} → ${patch.phase}`;
+    const changed = patch.phase && patch.phase !== this.state.phase;
     this.state = { ...this.state, ...patch };
+    if (changed) this.signal(patch.phase === 'requesting_permission' ? 'request' : patch.phase!);
     for (const listener of this.subscribers) listener(this.snapshot);
   }
 
@@ -96,10 +104,12 @@ export class MicrophoneSession {
       this.cancelTimer(owner, deadline);
       if (!this.owns(owner)) {
         this.stopTracks(stream);
+        this.signal('stale_ignored', owner.id);
         this.publish({ permissionPending: false });
         return;
       }
       owner.stream = stream;
+      this.signal('acquired', owner.id);
       this.publish({ permissionPending: false });
       if (!this.owns(owner)) return;
       if (!stream.getAudioTracks().some((track) => track.readyState === 'live')) {
@@ -115,6 +125,7 @@ export class MicrophoneSession {
           owner.bytes += data.size;
           if (owner.bytes > MAX_BYTES) { this.fail(owner, 'Recording exceeded the 8 MiB demo limit. Start a shorter session.'); return; }
           owner.chunks.push(data);
+          if (this.state.phase === 'stopping') this.signal('data_received', owner.id);
         });
         this.listen(owner, recorder, 'error', () => this.fail(owner, 'The recorder failed. Microphone resources were released; retry the session.'));
         this.listen(owner, recorder, 'stop', () => {
@@ -164,7 +175,9 @@ export class MicrophoneSession {
       this.fail(owner, 'The recorder could not stop cleanly. Resources were released; retry the session.');
     } finally {
       // Permission indicator goes off now, not after asynchronous encoding finishes.
+      const hadTracks = owner.stream?.getTracks().some((track) => track.readyState === 'live');
       this.stopTracks(owner.stream);
+      if (hadTracks) this.signal('tracks_released', owner.id);
       this.publish({});
     }
   }
@@ -179,12 +192,12 @@ export class MicrophoneSession {
     if (this.disposed) return;
     if (this.owner) this.release(this.owner);
     this.disposed = true;
-    this.subscribers.clear();
+    this.subscribers.clear(); this.trace.clear();
     this.state = { ...this.state, phase: 'idle', seconds: 0, error: null, clip: null };
   }
 
   private listen(owner: Owner, target: EventTarget, type: string, callback: (event: Event) => void): void {
-    const guarded: EventListener = (event) => { if (this.owns(owner)) callback(event); };
+    const guarded: EventListener = (event) => { if (this.owns(owner)) callback(event); else this.signal('stale_ignored', owner.id); };
     target.addEventListener(type, guarded);
     owner.removeListeners.push(() => target.removeEventListener(type, guarded));
   }
@@ -225,6 +238,7 @@ export class MicrophoneSession {
       owner.stream = null;
       owner.recorder = null;
       owner.chunks = [];
+      this.signal('resources_released', owner.id);
     }
   }
   private fail(owner: Owner, message: string): void {

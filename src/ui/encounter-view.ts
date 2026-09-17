@@ -1,9 +1,12 @@
+import { EngineeringView } from './engineering-view';
+import type { CaptureLab } from '../capture/lab';
 import { encounterOutput, hasSources } from '../domain/encounter';
 import type { Workspace } from '../workspace';
 import { bytes, escapeText, find, readableDate, ViewUrls } from './dom';
 import type { View } from './dom';
 
 export class EncounterView implements View {
+  private engineering: EngineeringView;
   private urls = new ViewUrls();
   private currentAudio: Blob | null = null;
   private imageKey = '';
@@ -12,11 +15,12 @@ export class EncounterView implements View {
   private previousScreen: string | null = null;
   private wasFinalized = false;
   private frameReady = () => { if (!this.disposed) this.update(); };
-  constructor(private readonly root: HTMLElement, private readonly workspace: Workspace) {
+  constructor(private readonly root: HTMLElement, private readonly workspace: Workspace, lab?: CaptureLab) {
     root.innerHTML = `
       <button id="back-history" class="text-button back-link">← All encounters</button>
       <section class="page-heading encounter-heading"><div><p id="encounter-date" class="eyebrow"></p><h1 id="encounter-name" tabindex="-1"></h1><p id="encounter-subtitle"></p></div><span id="encounter-status" class="status-tag"></span></section>
       <nav class="steps" aria-label="Encounter workflow"><button id="capture-step">01 <span>Capture sources</span></button><button id="review-step">02 <span>Review & finalize</span></button><span id="save-status" role="status" aria-live="polite"></span></nav>
+      <p id="source-integrity-warning" class="notice error" role="alert" hidden></p>
       <div id="capture-layout" class="capture-layout">
         <div class="capture-main">
           <section class="surface voice-surface" aria-labelledby="voice-heading">
@@ -46,8 +50,11 @@ export class EncounterView implements View {
       </section>
       <p id="empty-review" class="notice" hidden>Add a recording, photo, or written note before finalizing.</p>
       <div class="encounter-actions"><button id="delete-encounter" class="text-button danger">Delete encounter</button><div class="actions"><button id="edit-capture" class="secondary" hidden>Back to capture</button><button id="continue-review">Review encounter →</button><button id="finalize" hidden>Finalize encounter</button><button id="next-encounter" hidden>Back to history</button></div></div>
-      <details id="diagnostics" class="diagnostics"><summary>Developer diagnostics <span>Resource state only</span></summary><dl class="diagnostic-grid"><div><dt>Encounter ID</dt><dd id="diag-encounter"></dd></div><div><dt>Capture session ID</dt><dd id="diag-capture"></dd></div><div><dt>Session generation</dt><dd id="generation">0</dd></div><div><dt>Active tracks · microphone / camera</dt><dd id="diag-tracks"></dd></div><div><dt>Recorder state</dt><dd id="diag-recorder"></dd></div><div><dt>Owned timers · microphone / camera / save</dt><dd id="diag-timers"></dd></div><div><dt>Last microphone transition</dt><dd id="diag-transition"></dd></div><div><dt>Last camera transition</dt><dd id="diag-camera"></dd></div><div><dt>Last recoverable errors · microphone / camera</dt><dd id="diag-error"></dd></div></dl></details>
+      <details id="diagnostics" class="diagnostics"><summary>Developer diagnostics <span>Resource state only</span></summary><p id="invariant-status" class="notice" role="status"></p><dl class="diagnostic-grid"><div><dt>Encounter ID</dt><dd id="diag-encounter"></dd></div><div><dt>Capture session ID</dt><dd id="diag-capture"></dd></div><div><dt>Session generation</dt><dd id="generation">0</dd></div><div><dt>Active tracks · microphone / camera</dt><dd id="diag-tracks"></dd></div><div><dt>Recorder state</dt><dd id="diag-recorder"></dd></div><div><dt>Owned timers · microphone / camera / save</dt><dd id="diag-timers"></dd></div><div><dt>Last microphone transition</dt><dd id="diag-transition"></dd></div><div><dt>Last camera transition</dt><dd id="diag-camera"></dd></div><div><dt>Last recoverable errors · microphone / camera</dt><dd id="diag-error"></dd></div></dl></details>
     `;
+    const engineeringRoot = document.createElement('div'); root.append(engineeringRoot);
+    this.engineering = new EngineeringView(engineeringRoot, workspace, lab);
+    const telemetry = document.createElement('pre'); telemetry.id = 'resource-telemetry'; find(root, '#diagnostics').append(telemetry);
     const on = (selector: string, fn: () => void) => find(root, selector).addEventListener('click', fn);
     on('#back-history', () => { void workspace.home(); });
     on('#start', () => workspace.startVoice());
@@ -64,7 +71,7 @@ export class EncounterView implements View {
     on('#next-encounter', () => { void workspace.home(); });
     on('#delete-encounter', () => {
       const current = workspace.snapshot.active;
-      if (current && window.confirm('Delete this encounter and its locally stored audio, photos, and notes? This cannot be undone.')) void workspace.deleteEncounter(current.id);
+      if (current && window.confirm('Delete this encounter and its locally stored audio, photos, and notes? This cannot be undone.')) void workspace.deleteEncounter(current.id).then(() => { if (!workspace.snapshot.active) lab?.reset(); });
     });
     find<HTMLTextAreaElement>(root, '#notes').addEventListener('input', (event) => workspace.updateNotes((event.target as HTMLTextAreaElement).value));
     find(root, '#image-grid').addEventListener('click', (event) => {
@@ -164,6 +171,12 @@ export class EncounterView implements View {
     this.disabled('#delete-encounter', state.busy);
     this.disabled('#back-history', state.busy);
     const diagnostics = this.workspace.diagnostics;
+    const damaged = Object.values(diagnostics.integrity).includes('mismatch');
+    find(this.root, '#source-integrity-warning').hidden = !damaged;
+    this.text('#source-integrity-warning', 'Source integrity check failed. Stored media differs from its fingerprint. Inspect Provenance before relying on this encounter. Finalization is blocked.');
+    this.disabled('#finalize', damaged || state.busy || !hasSources(record));
+    this.text('#invariant-status', diagnostics.invariantFailures.length ? `Invariant failure observed: ${diagnostics.invariantFailures.join(', ')}` : 'All checked invariants hold. Counts describe resources owned by this workspace.');
+    find(this.root, '#invariant-status').classList.toggle('error', diagnostics.invariantFailures.length > 0);
     this.text('#diag-encounter', record.id);
     this.text('#diag-capture', diagnostics.captureSessionId ?? 'No capture yet');
     this.text('#generation', String(mic.generation));
@@ -173,11 +186,14 @@ export class EncounterView implements View {
     this.text('#diag-transition', diagnostics.microphone.lastTransition);
     this.text('#diag-camera', diagnostics.camera.lastTransition);
     this.text('#diag-error', `${diagnostics.microphone.lastError ?? 'None'} / ${diagnostics.camera.lastError ?? 'None'}`);
+    this.text('#resource-telemetry', JSON.stringify({ revision: diagnostics.revision, pendingWrites: diagnostics.pendingWrites, lastEvent: diagnostics.lastEvent?.type ?? null, ignoredStaleCallbacks: diagnostics.ignoredStaleCallbacks, invariants: diagnostics.invariantFailures.length ? diagnostics.invariantFailures : 'All checked invariants hold', recentSignals: diagnostics.recentSignals.slice(-3) }, null, 2));
+    this.engineering.update();
     if (finalized && !this.wasFinalized) find(this.root, '#review-heading').focus();
     this.wasFinalized = finalized;
   }
   dispose(): void {
     this.disposed = true;
+    this.engineering.dispose();
     for (const element of this.root.querySelectorAll('audio')) { element.pause(); element.removeAttribute('src'); element.load(); }
     const video = find<HTMLVideoElement>(this.root, '#camera-video');
     video.removeEventListener('loadeddata', this.frameReady); video.srcObject = null;

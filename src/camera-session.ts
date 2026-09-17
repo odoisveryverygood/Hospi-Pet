@@ -1,3 +1,5 @@
+import { CaptureTrace } from './capture/events';
+import type { CaptureAction } from './capture/events';
 import { LIMITS } from './domain/encounter';
 export interface CameraImage { blob: Blob; width: number; height: number }
 export interface CameraSnapshot {
@@ -30,10 +32,14 @@ export const browserCamera: CameraPort = {
     }, 'image/jpeg', 0.85));
   },
 };
-interface Owner { stream: MediaStream | null; timers: Set<ReturnType<typeof setTimeout>>; remove: (() => void)[] }
+interface Owner { generation: number; stream: MediaStream | null; timers: Set<ReturnType<typeof setTimeout>>; remove: (() => void)[] }
 
 /** Camera owns acquisition/preview/encoding; the view only borrows previewStream. */
 export class CameraSession {
+  readonly trace = new CaptureTrace();
+  private signal(action: CaptureAction, generation = this.state.generation) {
+    this.trace.emit({ action, generation, at: Date.now(), phase: this.state.phase, tracks: this.diagnostics.activeTracks, timers: this.diagnostics.timers });
+  }
   private state: CameraSnapshot = { phase: 'idle', generation: 0, permissionPending: false, image: null, error: null };
   private owner: Owner | null = null;
   private disposed = false;
@@ -55,13 +61,15 @@ export class CameraSession {
   private publish(patch: Partial<CameraSnapshot>) {
     if (patch.error) this.lastError = patch.error;
     if (patch.phase && patch.phase !== this.state.phase) this.transition = `${this.state.phase} → ${patch.phase}`;
+    const changed = patch.phase && patch.phase !== this.state.phase;
     this.state = { ...this.state, ...patch };
+    if (changed) this.signal(patch.phase === 'requesting_permission' ? 'request' : patch.phase!);
     for (const listener of this.subscribers) listener(this.snapshot);
   }
   private owns(owner: Owner) { return !this.disposed && this.owner === owner; }
   open(): void {
     if (this.disposed || this.owner || this.state.permissionPending) return;
-    const owner: Owner = { stream: null, timers: new Set(), remove: [] };
+    const owner: Owner = { generation: this.state.generation + 1, stream: null, timers: new Set(), remove: [] };
     this.owner = owner;
     this.publish({ phase: 'requesting_permission', generation: this.state.generation + 1, error: null, image: null });
     if (!this.owns(owner)) return;
@@ -70,8 +78,9 @@ export class CameraSession {
     const deadline = this.later(owner, () => this.fail(owner, 'Camera permission timed out. Dismiss the browser prompt before retrying; reload if it never settles.'), 15_000);
     void Promise.resolve().then(() => this.port.getUserMedia()).then((stream) => {
       clearTimeout(deadline); owner.timers.delete(deadline);
-      if (!this.owns(owner)) { this.stopTracks(stream); this.publish({ permissionPending: false }); return; }
+      if (!this.owns(owner)) { this.stopTracks(stream); this.signal('stale_ignored', owner.generation); this.publish({ permissionPending: false }); return; }
       owner.stream = stream;
+      this.signal('acquired', owner.generation);
       if (!stream.getVideoTracks().some((t) => t.readyState === 'live')) {
         this.fail(owner, 'No live camera track was returned. Reconnect the camera and retry.');
         this.publish({ permissionPending: false }); return;
@@ -103,8 +112,8 @@ export class CameraSession {
     catch { this.fail(owner, 'Could not capture this frame. Open the camera to retry.'); return; }
     finally { this.releaseStream(owner); this.publish({}); }
     void result.then((image) => {
-      if (!this.owns(owner)) return;
-      if (!image.blob.size || image.blob.size > LIMITS.imageBytes || !image.blob.type.startsWith('image/')) {
+      if (!this.owns(owner)) { this.signal('stale_ignored', owner.generation); return; }
+      if (!image.blob.size || image.blob.size > LIMITS.imageBytes || !['image/jpeg', 'image/png', 'image/webp'].includes(image.blob.type)) {
         this.fail(owner, 'Image encoding returned an invalid or oversized image. Retry capture.'); return;
       }
       this.release(owner); this.publish({ phase: 'completed', image });
@@ -119,7 +128,7 @@ export class CameraSession {
   dispose(): void {
     if (this.disposed) return;
     if (this.owner) this.release(this.owner);
-    this.disposed = true; this.subscribers.clear(); this.state = { ...this.state, phase: 'idle', image: null };
+    this.disposed = true; this.subscribers.clear(); this.trace.clear(); this.state = { ...this.state, phase: 'idle', image: null };
   }
   private later(owner: Owner, callback: () => void, delay: number) {
     const timer = setTimeout(() => { owner.timers.delete(timer); if (this.owns(owner)) callback(); }, delay);
@@ -129,7 +138,7 @@ export class CameraSession {
   private stopTracks(stream: MediaStream) { for (const track of stream.getTracks()) if (track.readyState !== 'ended') track.stop(); }
   private releaseStream(owner: Owner) {
     for (const remove of owner.remove) remove(); owner.remove = [];
-    if (owner.stream) this.stopTracks(owner.stream); owner.stream = null;
+    if (owner.stream) { this.stopTracks(owner.stream); owner.stream = null; this.signal('tracks_released', owner.generation); }
   }
   private release(owner: Owner) {
     if (this.owner === owner) this.owner = null;
