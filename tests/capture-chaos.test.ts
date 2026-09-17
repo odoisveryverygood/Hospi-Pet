@@ -126,3 +126,18 @@ it('typing coalesces into one content-free note checkpoint per save boundary', a
   expect(checkpoints).toHaveLength(1); expect(checkpoints[0]).toMatchObject({ characters: 600 });
   expect(JSON.stringify(checkpoints)).not.toContain('xxxx');
 });
+it('lab callback storage has a hard bound and releases every queued encoder result', async () => {
+  const h = setup(); const port = h.lab.camera({ supported: () => true, getUserMedia: async () => mediaStream().stream, encode: async () => frame });
+  const results: Promise<typeof frame>[] = [];
+  for (let i = 0; i < 10; i++) { h.lab.arm('camera-encode-delay'); results.push(port.encode({} as HTMLVideoElement)); }
+  await microtasks(); expect(h.lab.pending).toBe(8); expect(h.lab.last).toContain('queue limit');
+  h.lab.release(); expect(await Promise.all(results)).toHaveLength(10); expect(h.lab.pending).toBe(0);
+});
+it('queued recorder promise continuations cannot repopulate lab buffers after reset or disposal', async () => {
+  for (const dispose of [false, true]) {
+    const h = setup(); await h.workspace.create('Lab teardown'); h.lab.arm('final-data-delay'); h.workspace.startVoice(); await microtasks();
+    h.mic.stop(); h.recorders[0]!.finish(); await microtasks(); expect(h.lab.pending).toBe(2);
+    h.workspace.dispose(); if (dispose) h.lab.dispose(); else h.lab.reset(); await microtasks();
+    expect(h.lab.retainedCallbacks).toBe(0); expect(h.lab.pending).toBe(0); h.released();
+  }
+});

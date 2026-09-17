@@ -24,12 +24,14 @@ export class CaptureLab {
   private epoch = 0;
   reset() { this.epoch++; this.armed = null; this.retired = []; this.release(); }
   last = 'No fault injected';
+  get retainedCallbacks() { return this.retired.length; }
   get pending() { return this.gates.length; }
   get scenario() { return this.armed; }
   arm(scenario: Scenario) { if (!this.disposed) { this.armed = scenario; this.last = `Armed: ${scenario}`; this.emit(); } }
   private take(scenario: Scenario) { if (this.armed !== scenario) return false; this.armed = null; this.last = `Injected: ${scenario}`; this.emit(); return true; }
   private hold<T>(value: T): Promise<T> {
     if (this.disposed) return Promise.resolve(value);
+    if (this.gates.length >= 8) { this.last = 'Lab queue limit reached; this operation was not delayed'; this.emit(); return Promise.resolve(value); }
     return new Promise((resolve) => { this.gates.push(() => resolve(value)); this.emit(); });
   }
   release() { const gates = this.gates.splice(0); for (const release of gates) release(); this.last = `Released ${gates.length} pending callback(s)`; this.emit(); }
@@ -51,7 +53,13 @@ export class CaptureLab {
         if (key === 'addEventListener') return (type: string, listener: EventListenerOrEventListenerObject) => {
           const wrapped: EventListener = (event) => {
             const invoke = () => typeof listener === 'function' ? listener.call(target, event) : listener.handleEvent(event);
-            if (target.state === 'inactive' && (type === 'dataavailable' || type === 'stop')) void this.hold(undefined).then(() => { this.retired = [...this.retired.slice(-1), invoke]; invoke(); });
+            if (target.state === 'inactive' && (type === 'dataavailable' || type === 'stop')) {
+              const epoch = this.epoch;
+              void this.hold(undefined).then(() => {
+                if (this.disposed || this.epoch !== epoch) return;
+                this.retired = [...this.retired.slice(-1), invoke]; invoke();
+              });
+            }
             else invoke();
           };
           wrappers.set(listener, wrapped); target.addEventListener(type, wrapped);
